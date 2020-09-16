@@ -4,10 +4,13 @@ use libc;
 
 const SELF: &str = "/proc/self/maps\0";
 
-unsafe fn find_in_mem_file(mem_file: *mut libc::FILE, main_ptr: usize) -> Option<(*mut ffi::c_void, usize)> {
+unsafe fn find_in_mem_file(
+    mem_file: *mut libc::FILE,
+    main_ptr: usize,
+) -> Option<(*mut ffi::c_void, usize)> {
     let page_len = 4096; // Seems to be enough
     let mut buf = [0u8; 4096];
-    while ! libc::fgets(buf.as_mut_ptr() as _, page_len, mem_file).is_null() {
+    while !libc::fgets(buf.as_mut_ptr() as _, page_len, mem_file).is_null() {
         let mut start: libc::size_t = 0;
         let mut end: libc::size_t = 0;
         // TODO check it contains newline
@@ -15,19 +18,22 @@ unsafe fn find_in_mem_file(mem_file: *mut libc::FILE, main_ptr: usize) -> Option
             buf.as_mut_ptr() as _,
             "%p-%p \0".as_ptr() as _,
             &mut start as *mut libc::size_t,
-            &mut end as *mut libc::size_t
-        ) == 2 && start <= main_ptr && main_ptr < end {
-            return Some((start as _, end - start))
+            &mut end as *mut libc::size_t,
+        ) == 2
+            && start <= main_ptr
+            && main_ptr < end
+        {
+            return Some((start as _, end - start));
         }
     }
-    
+
     None
 }
 
 #[no_mangle]
 pub extern "C" fn remap_process_binary(main_ptr: *const ffi::c_void) -> libc::c_int {
     unsafe {
-        if ! libc::getenv("LIBREMAP_DISABLE\0".as_ptr() as _).is_null() {
+        if !libc::getenv("LIBREMAP_DISABLE\0".as_ptr() as _).is_null() {
             return 1;
         }
         let mem_file = libc::fopen(SELF.as_ptr() as _, "r\0".as_ptr() as _);
@@ -35,7 +41,7 @@ pub extern "C" fn remap_process_binary(main_ptr: *const ffi::c_void) -> libc::c_
             // errno is set by fopen
             return -1;
         }
-        
+
         let range = find_in_mem_file(mem_file, main_ptr as usize);
 
         if libc::fclose(mem_file) != 0 {
@@ -55,10 +61,14 @@ pub extern "C" fn remap_process_binary(main_ptr: *const ffi::c_void) -> libc::c_
                 return -1;
             }
             if libc::mmap(
-                code_mem, size, libc::PROT_WRITE | libc::PROT_READ,
+                code_mem,
+                size,
+                libc::PROT_WRITE | libc::PROT_READ,
                 libc::MAP_PRIVATE | libc::MAP_ANONYMOUS | libc::MAP_FIXED,
-                -1, 0
-            ) != code_mem {
+                -1,
+                0,
+            ) != code_mem
+            {
                 // One could return -1, "but there's nobody home", as
                 // return address is not valid after unmap.
                 let msg = "ERROR:libremap: failed to map same range again; re-run with LIBREMAP_DISABLE environment variable; exiting with code 42...\n\0";
