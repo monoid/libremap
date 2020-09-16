@@ -1,6 +1,5 @@
 #![no_std]
 use core::ffi;
-use core::ptr;
 use libc;
 
 const SELF: &str = "/proc/self/maps\0";
@@ -8,8 +7,7 @@ const SELF: &str = "/proc/self/maps\0";
 unsafe fn find_in_mem_file(mem_file: *mut libc::FILE, main_ptr: usize) -> Option<(*mut ffi::c_void, usize)> {
     let page_len = 4096; // Seems to be enough
     let mut buf = [0u8; 4096];
-    while libc::fgets(buf.as_mut_ptr() as _,
-                      page_len, mem_file) != ptr::null_mut() {
+    while ! libc::fgets(buf.as_mut_ptr() as _, page_len, mem_file).is_null() {
         let mut start: libc::size_t = 0;
         let mut end: libc::size_t = 0;
         // TODO check it contains newline
@@ -18,10 +16,8 @@ unsafe fn find_in_mem_file(mem_file: *mut libc::FILE, main_ptr: usize) -> Option
             "%p-%p \0".as_ptr() as _,
             &mut start as *mut libc::size_t,
             &mut end as *mut libc::size_t
-        ) == 2 {
-            if start <= main_ptr && main_ptr < end {
-                return Some((start as _, end - start))
-            }
+        ) == 2 && start <= main_ptr && main_ptr < end {
+            return Some((start as _, end - start))
         }
     }
     
@@ -31,7 +27,7 @@ unsafe fn find_in_mem_file(mem_file: *mut libc::FILE, main_ptr: usize) -> Option
 #[no_mangle]
 pub extern "C" fn remap_process_binary(main_ptr: *const ffi::c_void) -> libc::c_int {
     unsafe {
-        if libc::getenv("LIBREMAP_DISABLE\0".as_ptr() as _) != ptr::null_mut() {
+        if ! libc::getenv("LIBREMAP_DISABLE\0".as_ptr() as _).is_null() {
             return 1;
         }
         let mem_file = libc::fopen(SELF.as_ptr() as _, "r\0".as_ptr() as _);
@@ -49,7 +45,7 @@ pub extern "C" fn remap_process_binary(main_ptr: *const ffi::c_void) -> libc::c_
 
         if let Some((code_mem, size)) = range {
             let buffer = libc::malloc(size);
-            if buffer == ptr::null_mut() {
+            if buffer.is_null() {
                 // errno is set by malloc
                 return -1;
             }
