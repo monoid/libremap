@@ -5,11 +5,8 @@ use libc;
 const SELF: &str = "/proc/self/maps\0";
 
 unsafe fn write_str(handle: libc::c_int, msg: &str) {
-    libc::write(
-        handle,
-        msg.as_ptr() as *const libc::c_void,
-        msg.as_bytes().len(),
-    );
+    let msg = msg.as_bytes();
+    libc::write(handle, msg.as_ptr() as *const libc::c_void, msg.len());
 }
 
 enum Error {
@@ -37,6 +34,31 @@ impl Error {
 
     fn fatal(msg: &'static str) -> Self {
         Self::Fatal(msg)
+    }
+}
+
+// Treat value castable to -1 as an error.
+fn libc_check_mptr<T>(v: *mut T) -> Result<*mut T, Error> {
+    if v as isize == -1 {
+        Err(Error::error(-1))
+    } else {
+        Ok(v)
+    }
+}
+
+fn libc_check_nonzero<T>(v: *mut T) -> Result<*mut T, Error> {
+    if v.is_null() {
+        Err(Error::error(-1))
+    } else {
+        Ok(v)
+    }
+}
+
+fn libc_err(v: libc::c_int) -> Result<libc::c_int, Error> {
+    if v == -1 {
+        Err(Error::error(-1))
+    } else {
+        Ok(v)
     }
 }
 
@@ -79,18 +101,17 @@ unsafe fn find_in_open_mem_file(
 unsafe fn find_in_mem_file(
     main_ptr: *const libc::c_void,
 ) -> Result<Option<(*mut libc::c_void, usize)>, Error> {
-    let mem_file = libc::fopen(SELF.as_ptr() as _, "r\0".as_ptr() as _);
-    if mem_file == ((-1isize) as usize as _) {
-        // errno is set by fopen
-        return Err(Error::error(-1));
-    }
+    let mem_file = libc_check_mptr(
+        libc::fopen(SELF.as_ptr() as _, "r\0".as_ptr() as _)
+    )?;
 
     let range = find_in_open_mem_file(mem_file, main_ptr as usize);
 
-    if libc::fclose(mem_file) != 0 {
-        // errno is set by fclose
-        return Err(Error::error(-1));
-    }
+    // TODO close/fclose errors should be ignored as their are neither
+    // important nor correctable nor (at least on Linux) retryable.
+    libc_err(
+        libc::fclose(mem_file)
+    )?;
 
     Ok(range)
 }
@@ -101,16 +122,14 @@ unsafe fn remap_process_binary_impl(main_ptr: *const libc::c_void) -> Result<(),
     let range = find_in_mem_file(main_ptr)?;
 
     if let Some((code_mem, size)) = range {
-        let buffer = libc::malloc(size);
-        if buffer.is_null() {
-            // errno is set by malloc
-            return Err(Error::error(-1));
-        }
+        let buffer = libc_check_nonzero(
+            libc::malloc(size)
+        )?;
         libc::memcpy(buffer, code_mem, size);
-        if libc::munmap(code_mem, size) != 0 {
-            // errno is set by munmap
-            return Err(Error::error(-1));
-        }
+        libc_err(
+            libc::munmap(code_mem, size)
+        )?;
+
         if libc::mmap(
             code_mem,
             size,
@@ -128,10 +147,9 @@ unsafe fn remap_process_binary_impl(main_ptr: *const libc::c_void) -> Result<(),
             // Return address is not executable, so signal fatal error.
             return Err(Error::fatal("failed to make range executable again"));
         }
-        if libc::madvise(code_mem, size, libc::MADV_HUGEPAGE) != 0 {
-            // errno is set by madvise
-            return Err(Error::error(-1));
-        }
+        libc_err(
+            libc::madvise(code_mem, size, libc::MADV_HUGEPAGE)
+        )?;
         libc::free(buffer);
         Ok(())
     } else {
