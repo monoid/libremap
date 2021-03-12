@@ -2,7 +2,7 @@
 use libc;
 
 // C-string of /proc file that contains memory regions mapping info.
-const SELF: &str = "/proc/self/maps\0";
+const SELF: &[u8] = b"/proc/self/maps\0";
 
 unsafe fn write_str(handle: libc::c_int, msg: &str) {
     let msg = msg.as_bytes();
@@ -63,7 +63,7 @@ fn libc_err(v: libc::c_int) -> Result<libc::c_int, Error> {
 }
 
 unsafe fn check_disabled() -> Result<(), Error> {
-    if libc::getenv("LIBREMAP_DISABLE\0".as_ptr() as _).is_null() {
+    if libc::getenv(b"LIBREMAP_DISABLE\0".as_ptr() as _).is_null() {
         Ok(())
     } else {
         Err(Error::error(1))
@@ -102,7 +102,7 @@ unsafe fn find_in_mem_file(
     main_ptr: *const libc::c_void,
 ) -> Result<Option<(*mut libc::c_void, usize)>, Error> {
     let mem_file = libc_check_mptr(
-        libc::fopen(SELF.as_ptr() as _, "r\0".as_ptr() as _)
+        libc::fopen(SELF.as_ptr() as _, b"r\0".as_ptr() as _)
     )?;
 
     let range = find_in_open_mem_file(mem_file, main_ptr as usize);
